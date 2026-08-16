@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>linux_emulator</title>
+<style>
+  body { font-family: -apple-system, sans-serif; max-width: 720px; margin: 40px auto; }
+  #log {
+    background: #111; color: #ddd; font-family: Menlo, monospace; font-size: 13px;
+    height: 360px; overflow: auto; padding: 12px; border-radius: 8px; white-space: pre-wrap;
+  }
+  .you { color: #7f7; }
+  .result { color: #9cf; }
+  .error { color: #f66; }
+  .composer { display: flex; gap: 8px; margin-top: 12px; }
+  #input { flex: 1; padding: 8px; font: inherit; }
+</style>
+</head>
+<body>
+<h1>linux_emulator</h1>
+<p>HTML → remote (:8090) → proxy (:8091). Remote does not exec.</p>
+<div id="log"></div>
+<div class="composer">
+  <input id="input" placeholder="list all files in ~/" />
+  <button id="send" type="button">Send</button>
+</div>
+<script>
+  const logEl = document.getElementById("log");
+  const input = document.getElementById("input");
+  const proto = location.protocol === "https:" ? "wss://" : "ws://";
+  const ws = new WebSocket(proto + location.host + "/ws");
+
+  function line(cls, label, text) {
+    const div = document.createElement("div");
+    div.className = cls;
+    div.textContent = label + text;
+    logEl.appendChild(div);
+    logEl.scrollTop = logEl.scrollHeight;
+  }
+
+  function send() {
+    const text = input.value.trim();
+    if (!text) return;
+    input.value = "";
+    line("you", "you: ", text);
+    ws.send(JSON.stringify({ type: "user", text }));
+  }
+
+  document.getElementById("send").addEventListener("click", send);
+  input.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") { e.preventDefault(); send(); }
+  });
+
+  ws.addEventListener("message", (ev) => {
+    let msg;
+    try { msg = JSON.parse(ev.data); } catch { return; }
+    if (msg.type === "result") line("result", "result:\n", msg.text || "");
+    else if (msg.type === "error") line("error", "error: ", msg.text || "error");
+  });
+  ws.addEventListener("close", () => line("error", "error: ", "disconnected"));
+</script>
+</body>
+</html>

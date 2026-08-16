@@ -22,8 +22,19 @@ Open http://localhost:8090
 
 ## Try
 
+Common Linux commands (argv only, no shell):
+
+- `ls -la ~/`
+- `mkdir ~/linux_emulator_dir`
+- `touch ~/hi.txt`
+- `cat ~/hi.txt`
+- `echo hello`
+- `pwd`
+
+English phrases still work:
+
 - `list all files in ~/`
 - `add file ~/test1.txt`
-- `remove file ~/test.txt` (create it first if it is not there)
+- `remove file ~/test.txt`
 
-Unknown phrases never reach the proxy.
+Unknown commands, pipes, redirects, and `rm -r` never reach the proxy.

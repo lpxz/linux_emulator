@@ -4,15 +4,16 @@ Date: 2026-08-16
 
 ## Goal
 
-Mock a Cursor-style Cloud Agent on one laptop: a browser (machine A) talks to a remote service (machine B) that **cannot** run local tools; that service talks to a local proxy (machine C) that **can**. The remote translates three natural-language intents into structured ops; the proxy runs the matching Linux commands; results display in the HTML log.
+Mock a Cursor-style Cloud Agent on one laptop: a browser (machine A) talks to a remote service (machine B) that **cannot** run local tools; that service talks to a local proxy (machine C) that **can**. The remote accepts common Linux command lines (and three English aliases) and forwards argv to the proxy; results display in the HTML log.
 
 This is a detour on purpose. The HTML could exec locally; we do not, so the three-hop shape matches A → cloud → laptop.
 
-## Non-goals (v1)
+## Non-goals
 
 - LLM translation
-- Arbitrary shell / natural language beyond the three intents
-- `rm -r`, directories as remove targets
+- A real shell: no pipes, redirects, `;`, `&`, backticks, `$`
+- `rm -r` / `rm -rf`
+- Interpreters and network tools (`bash`, `sh`, `python`, `curl`, `ssh`, …)
 - gRPC (phase 2: swap remote↔proxy only; HTML unchanged)
 - Auth, multi-user, persistence
 
@@ -31,15 +32,16 @@ Remote connects **outbound** to `ws://127.0.0.1:8091` so the proxy does not need
 - `ui.html` — text box, Send, log
 - `remote_server.py` — `GET /` serves UI; `WS /ws` from browser; client WS to proxy
 - `proxy_server.py` — `WS /ws`; runs commands
+- `allowed_cmds.py` — shared allowlist (remote refuses before any proxy call)
 - `requirements.txt` — fastapi, uvicorn, websockets
-- `README.md` — how to run and the three validation phrases
+- `README.md` — how to run and example commands
 
 ## Protocols
 
 Browser → remote (`:8090/ws`):
 
 ```json
-{"type": "user", "text": "list all files in ~/"}
+{"type": "user", "text": "ls -la ~/"}
 ```
 
 Remote → browser:
@@ -52,10 +54,10 @@ Remote → browser:
 Remote → proxy (`:8091/ws`):
 
 ```json
-{"op": "list", "path": "/Users/you"}
-{"op": "create", "path": "/Users/you/test1.txt"}
-{"op": "remove", "path": "/Users/you/test.txt"}
+{"argv": ["ls", "-la", "/Users/you"]}
 ```
+
+Legacy `{op, path}` (`list` / `create` / `remove`) is still accepted by the proxy.
 
 Proxy → remote:
 
@@ -66,27 +68,25 @@ Proxy → remote:
 
 ## Parser (remote only)
 
-Deterministic, case-insensitive. Path is the remainder after the prefix; strip quotes; expand leading `~` to the home directory **as a string** (remote may read `Path.home()` for expansion only — that is not executing a tool).
+1. English aliases (case-insensitive prefixes) still map to argv:
+   - `list all files in <path>` → `ls -la <path>`
+   - `add file <path>` → `touch <path>`
+   - `remove file <path>` → `rm -f <path>`
+2. Otherwise `shlex.split` the line. First token must be in `ALLOWED`. Expand leading `~` / `~/` on each arg as a **string** (`Path.home()` only).
+3. Shell metacharacters, unknown commands, empty path, or `rm -r` → `error` to HTML, **no** proxy call.
 
-| Intent | Phrase | `op` | Proxy argv |
-| --- | --- | --- | --- |
-| list | `list all files in <path>` | `list` | `ls -la <path>` |
-| add | `add file <path>` | `create` | `touch <path>` |
-| remove | `remove file <path>` | `remove` | `rm -f <path>` |
+## Allowed commands
 
-Unknown phrase → `error` to HTML, **no** proxy call.
+`ls`, `cat`, `head`, `tail`, `touch`, `mkdir`, `rmdir`, `rm`, `cp`, `mv`, `ln`, `readlink`, `stat`, `file`, `chmod`, `realpath`, `dirname`, `basename`, `pwd`, `echo`, `printf`, `grep`, `sort`, `uniq`, `cut`, `tr`, `wc`, `diff`, `date`, `uname`, `hostname`, `whoami`, `id`, `df`, `du`, `which`, `env`, `printenv`, `true`, `false`, `sleep`, `cal`, `md5`, `shasum`, `find`.
 
-Empty path → `error`, no proxy call.
-
-Paths may be `~`, `~/`, `~/foo`, or any absolute path the user typed (v1 does not sandbox).
+`mkdir -p` is a flag, not a shell feature — allowed. `echo hello > file` is a redirect — refused.
 
 ## Proxy execution
 
 - `subprocess.run(argv, capture_output=True, text=True, timeout=10)`
 - **Never** `shell=True`
-- `list` / `create` / `remove` only; unknown `op` → `ok: false`
-- `touch` creates an empty file (and parent dirs are **not** auto-created; missing parent → stderr)
-- `rm -f` is file-only (no `-r`)
+- First argv token must be in `ALLOWED`; unknown → `ok: false`
+- `rm` with `-r` / `-rf` / `--recursive` → `ok: false`
 
 ## UI
 
@@ -94,14 +94,16 @@ Plain page: input, Send, Enter to send. Log lines: `you:` / `result:` / `error:`
 
 ## Validation (manual)
 
-1. `list all files in ~/` → listing appears in the HTML log  
-2. `add file ~/test1.txt` → file exists  
-3. `remove file ~/test.txt` → file gone (create it first if needed)
+1. `ls -la ~/` → listing appears in the HTML log
+2. `mkdir ~/linux_emulator_dir` → directory exists
+3. `touch ~/test1.txt` → file exists
+4. `list all files in ~/` still works
+5. `rm -rf /` and `echo hi > ~/x` → error, no proxy call
 
-## Phase 2 (not v1)
+## Phase 2 (not this change)
 
 Replace remote↔proxy WebSocket with gRPC. Browser protocol unchanged.
 
 ## Success
 
-Three processes, two WebSocket hops, remote has no exec, the three phrases work, README explains how to run.
+Three processes, two WebSocket hops, remote has no exec, allowlisted commands work, English aliases still work, README explains how to run.

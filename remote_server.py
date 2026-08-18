@@ -3,6 +3,7 @@ import asyncio
 import json
 import re
 import shlex
+import time
 from pathlib import Path
 from typing import Optional
 
@@ -10,6 +11,7 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse
 
 from allowed_cmds import ALLOWED, has_shell_meta, is_recursive_rm
+from metrics import METRICS
 
 app = FastAPI()
 
@@ -114,6 +116,16 @@ async def serve_ui():
     return FileResponse("ui.html")
 
 
+@app.get("/metrics")
+async def metrics_json():
+    return METRICS.snapshot(proxy_up=proxy_ws is not None)
+
+
+@app.get("/dashboard")
+async def serve_dashboard():
+    return FileResponse("dashboard.html")
+
+
 @app.websocket("/proxy")
 async def proxy_from_c(ws: WebSocket):
     """C dials this socket; B then asks C on it."""
@@ -143,35 +155,46 @@ async def proxy_from_c(ws: WebSocket):
 @app.websocket("/ws")
 async def browser_ws(ws: WebSocket):
     await ws.accept()
+    METRICS.ws_clients += 1
     try:
         while True:
             raw = await ws.receive_text()
             try:
                 msg = json.loads(raw)
             except json.JSONDecodeError:
+                METRICS.record_fail()
                 await ws.send_text(json.dumps({"type": "error", "text": "bad json"}))
                 continue
             if msg.get("type") != "user":
                 continue
             parsed = parse_to_argv(msg.get("text") or "")
             if isinstance(parsed, str):
+                METRICS.record_fail()
                 await ws.send_text(json.dumps({"type": "error", "text": parsed}))
                 continue
             if not parsed:
+                METRICS.record_fail()
                 await ws.send_text(json.dumps({"type": "error", "text": UNKNOWN}))
                 continue
+            t0 = time.perf_counter()
             try:
                 result = await call_proxy(parsed)
             except Exception:
+                METRICS.record_fail((time.perf_counter() - t0) * 1000)
                 await ws.send_text(
                     json.dumps({"type": "error", "text": "proxy is down"})
                 )
                 continue
+            ms = (time.perf_counter() - t0) * 1000
             if result.get("ok"):
+                METRICS.record_ok(ms)
                 text = result.get("stdout") or "(ok)"
                 await ws.send_text(json.dumps({"type": "result", "text": text}))
             else:
+                METRICS.record_fail(ms)
                 err = (result.get("stderr") or result.get("stdout") or "command failed").strip()
                 await ws.send_text(json.dumps({"type": "error", "text": err}))
     except WebSocketDisconnect:
         return
+    finally:
+        METRICS.ws_clients = max(0, METRICS.ws_clients - 1)

@@ -18,7 +18,13 @@ uvicorn remote_server:app --port 8090 --reload
 python proxy_server.py
 ```
 
-Open http://localhost:8090
+Open http://localhost:8090 · metrics: http://localhost:8090/dashboard
+
+Load (after both processes are up):
+
+```bash
+python loadtest.py --clients 20 --requests 25
+```
 
 ## Try
 

@@ -39,6 +39,13 @@ def test_get_ui(server):
         assert r.status == 200
         body = r.read().decode()
         assert "linux_emulator" in body
+    with urllib.request.urlopen(HTTP + "/dashboard") as r:
+        assert r.status == 200
+        assert b"success ratio" in r.read()
+    with urllib.request.urlopen(HTTP + "/metrics") as r:
+        m = json.loads(r.read().decode())
+        assert "success_ratio" in m
+        assert "p50" in m["latency_ms"]
 
 
 def test_proxy_unavailable_when_c_not_connected(server):

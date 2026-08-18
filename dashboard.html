@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>linux_emulator dashboard</title>
+<style>
+  body { font-family: -apple-system, sans-serif; max-width: 720px; margin: 40px auto; }
+  h1 { font-size: 22px; }
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .card { background: #111; color: #ddd; padding: 16px; border-radius: 8px; }
+  .label { color: #888; font-size: 12px; text-transform: uppercase; }
+  .val { font-size: 28px; font-variant-numeric: tabular-nums; margin-top: 6px; }
+  .ok { color: #7f7; }
+  .bad { color: #f66; }
+  a { color: #9cf; }
+</style>
+</head>
+<body>
+<h1>linux_emulator metrics</h1>
+<p><a href="/">command UI</a> · polls <code>/metrics</code> every 1s</p>
+<div class="grid">
+  <div class="card"><div class="label">success ratio</div><div class="val" id="ratio">—</div></div>
+  <div class="card"><div class="label">latency p50 / p95 (ms)</div><div class="val" id="lat">—</div></div>
+  <div class="card"><div class="label">ok / fail</div><div class="val" id="counts">—</div></div>
+  <div class="card"><div class="label">ws clients · proxy</div><div class="val" id="conn">—</div></div>
+</div>
+<script>
+  async function tick() {
+    const r = await fetch("/metrics");
+    const m = await r.json();
+    const sr = m.success_ratio;
+    document.getElementById("ratio").textContent =
+      sr == null ? "—" : (sr * 100).toFixed(1) + "%";
+    document.getElementById("ratio").className = "val " + (sr == null || sr >= 0.99 ? "ok" : "bad");
+    const L = m.latency_ms;
+    document.getElementById("lat").textContent =
+      L.p50 == null ? "—" : L.p50 + " / " + L.p95;
+    document.getElementById("counts").textContent = m.ok + " / " + m.fail;
+    document.getElementById("conn").textContent =
+      m.ws_clients + " · " + (m.proxy_up ? "up" : "down");
+    document.getElementById("conn").className = "val " + (m.proxy_up ? "ok" : "bad");
+  }
+  tick();
+  setInterval(tick, 1000);
+</script>
+</body>
+</html>

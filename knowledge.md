@@ -44,6 +44,22 @@ Two independent sockets. Killing B does not kill C’s process; killing C does n
 4. Kill terminal 1. Terminal 2 logs backoff. Page: `disconnected; retrying…`. Bring terminal 1 back. Terminal 2: `connected to …`. Page: `connected`. Send again.
 5. Kill terminal 2. Send `echo hello` → `error: proxy is down`. Start terminal 2 again, then send works.
 
+## Metrics dashboard
+
+No Grafana. B keeps in-memory counters (`metrics.py`), reset when remote restarts.
+
+- http://127.0.0.1:8090/dashboard — polls `GET /metrics` every 1s
+- Fields: `success_ratio` (`ok/(ok+fail)`), `latency_ms.p50` / `p95` / `last` (last 500 B→C round-trips), `ok` / `fail`, `ws_clients`, `proxy_up`
+- Parse errors count as `fail` with no latency. Proxy round-trips (ok or fail) record ms.
+
+Load (remote + proxy already up):
+
+```bash
+python loadtest.py --clients 20 --requests 25
+```
+
+Example: 500 ok, 0 fail, p50 ~40ms (B serializes asks on one C socket). Watch the dashboard while it runs.
+
 ## Git worktrees
 
 If Cursor has no `/worktree` support, this is enough.

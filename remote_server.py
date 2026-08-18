@@ -1,10 +1,11 @@
 """remote_server.py — machine B (cloud mock). HTTP+WS :8090. Must not exec."""
+import asyncio
 import json
 import re
 import shlex
 from pathlib import Path
+from typing import Optional
 
-import websockets
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse
 
@@ -12,7 +13,9 @@ from allowed_cmds import ALLOWED, has_shell_meta, is_recursive_rm
 
 app = FastAPI()
 
-PROXY_URL = "ws://127.0.0.1:8091/ws"
+proxy_lock = asyncio.Lock()
+proxy_ws: Optional[WebSocket] = None
+proxy_replies: Optional[asyncio.Queue] = None
 
 LIST_RE = re.compile(r"^list all files in\s+(.+)$", re.I)
 ADD_RE = re.compile(r"^add file\s+(.+)$", re.I)
@@ -87,15 +90,54 @@ def parse_to_argv(text: str):
 
 
 async def call_proxy(argv) -> dict:
-    async with websockets.connect(PROXY_URL) as ws:
-        await ws.send(json.dumps({"argv": argv}))
-        raw = await ws.recv()
+    global proxy_ws, proxy_replies
+    async with proxy_lock:
+        ws = proxy_ws
+        q = proxy_replies
+        if ws is None or q is None:
+            raise RuntimeError("not connected")
+        while not q.empty():
+            q.get_nowait()
+        try:
+            await ws.send_text(json.dumps({"argv": argv}))
+            raw = await asyncio.wait_for(q.get(), timeout=15)
+        except Exception:
+            if proxy_ws is ws:
+                proxy_ws = None
+                proxy_replies = None
+            raise
         return json.loads(raw)
 
 
 @app.get("/")
 async def serve_ui():
     return FileResponse("ui.html")
+
+
+@app.websocket("/proxy")
+async def proxy_from_c(ws: WebSocket):
+    """C dials this socket; B then asks C on it."""
+    global proxy_ws, proxy_replies
+    await ws.accept()
+    old = proxy_ws
+    proxy_ws = ws
+    proxy_replies = asyncio.Queue()
+    if old is not None and old is not ws:
+        try:
+            await old.close()
+        except Exception:
+            pass
+    try:
+        while True:
+            raw = await ws.receive_text()
+            if proxy_replies is not None:
+                await proxy_replies.put(raw)
+    except WebSocketDisconnect:
+        pass
+    finally:
+        if proxy_ws is ws:
+            proxy_ws = None
+            proxy_replies = None
 
 
 @app.websocket("/ws")

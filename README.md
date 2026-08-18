@@ -4,18 +4,18 @@ Mock of a cloud agent on one laptop: HTML (machine A) → remote (machine B, no 
 
 ## Run
 
-Two terminals. **Proxy first.**
+Two terminals. **Remote first** (so the local proxy has somewhere to dial).
 
 ```bash
 python3 -m venv venv
 source venv/bin/activate
 pip install -r requirements.txt
 
-# terminal 1
-uvicorn proxy_server:app --port 8091 --reload
-
-# terminal 2
+# terminal 1 — cloud mock (B)
 uvicorn remote_server:app --port 8090 --reload
+
+# terminal 2 — local daemon (C); connects to :8090/proxy
+python proxy_server.py
 ```
 
 Open http://localhost:8090

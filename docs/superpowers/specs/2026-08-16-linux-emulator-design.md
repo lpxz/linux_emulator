@@ -23,15 +23,17 @@ This is a detour on purpose. The HTML could exec locally; we do not, so the thre
 | --- | --- | --- | --- |
 | Browser + `ui.html` | Machine A | — | No |
 | `remote_server.py` | Cloud agent (B) | HTTP+WS **8090** | **No** (`subprocess` / `os.system` / file write forbidden) |
-| `proxy_server.py` | Local proxy (C) | WS **8091** | **Yes**, argv only |
+| `proxy_server.py` | Local proxy (C) | none (WS **client**) | **Yes**, argv only |
 
-Remote connects **outbound** to `ws://127.0.0.1:8091` so the proxy does not need to know about the remote. Start **proxy first**, then remote, then open http://localhost:8090.
+**Ask:** A → B → C. **Connect:** A dials B (`/ws`); C dials B (`/proxy`). B never dials C. Start **remote first**, then the proxy daemon, then open http://localhost:8090.
+
+See also `2026-08-17-reverse-ws-proxy-design.md`.
 
 ## Files
 
 - `ui.html` — text box, Send, log
-- `remote_server.py` — `GET /` serves UI; `WS /ws` from browser; client WS to proxy
-- `proxy_server.py` — `WS /ws`; runs commands
+- `remote_server.py` — `GET /` serves UI; `WS /ws` from browser; `WS /proxy` from C; holds that socket and **asks** C
+- `proxy_server.py` — daemon; connects to `:8090/proxy`; runs commands
 - `allowed_cmds.py` — shared allowlist (remote refuses before any proxy call)
 - `requirements.txt` — fastapi, uvicorn, websockets
 - `README.md` — how to run and example commands
@@ -51,7 +53,7 @@ Remote → browser:
 {"type": "error", "text": "<reason>"}
 ```
 
-Remote → proxy (`:8091/ws`):
+B → C (on the WebSocket **C opened** to `:8090/proxy`):
 
 ```json
 {"argv": ["ls", "-la", "/Users/you"]}

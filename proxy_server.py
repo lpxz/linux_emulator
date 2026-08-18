@@ -1,12 +1,20 @@
-"""proxy_server.py — machine C. WebSocket :8091. The only process that execs."""
+"""proxy_server.py — machine C. Local daemon. The only process that execs."""
+import asyncio
 import json
+import os
 import subprocess
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+import websockets
 
 from allowed_cmds import ALLOWED, is_recursive_rm
 
-app = FastAPI()
+REMOTE_URL = os.environ.get("REMOTE_PROXY_URL", "ws://127.0.0.1:8090/proxy")
+BACKOFF_INITIAL = 1.0
+BACKOFF_CAP = 30.0
+
+
+def next_backoff(delay: float) -> float:
+    return min(max(delay, BACKOFF_INITIAL) * 2, BACKOFF_CAP)
 
 OPS = {
     "list": lambda path: ["ls", "-la", path],
@@ -42,24 +50,33 @@ def run_op(op: str, path: str) -> dict:
     return run_argv(OPS[op](path))
 
 
-@app.websocket("/ws")
-async def proxy_ws(ws: WebSocket):
-    await ws.accept()
+def handle_message(raw: str) -> dict:
     try:
-        while True:
-            raw = await ws.receive_text()
-            try:
-                msg = json.loads(raw)
-            except json.JSONDecodeError:
-                await ws.send_text(
-                    json.dumps({"ok": False, "stdout": "", "stderr": "bad json"})
-                )
-                continue
-            if isinstance(msg.get("argv"), list):
-                argv = [str(a) for a in msg["argv"]]
-                result = run_argv(argv)
-            else:
-                result = run_op(str(msg.get("op") or ""), str(msg.get("path") or ""))
-            await ws.send_text(json.dumps(result))
-    except WebSocketDisconnect:
-        return
+        msg = json.loads(raw)
+    except json.JSONDecodeError:
+        return {"ok": False, "stdout": "", "stderr": "bad json"}
+    if isinstance(msg.get("argv"), list):
+        return run_argv([str(a) for a in msg["argv"]])
+    return run_op(str(msg.get("op") or ""), str(msg.get("path") or ""))
+
+
+async def serve_proxy_socket(ws):
+    async for raw in ws:
+        await ws.send(json.dumps(handle_message(raw)))
+
+
+async def run_daemon():
+    delay = BACKOFF_INITIAL
+    while True:
+        try:
+            async with websockets.connect(REMOTE_URL) as ws:
+                delay = BACKOFF_INITIAL
+                await serve_proxy_socket(ws)
+        except Exception:
+            pass
+        await asyncio.sleep(delay)
+        delay = next_backoff(delay)
+
+
+if __name__ == "__main__":
+    asyncio.run(run_daemon())

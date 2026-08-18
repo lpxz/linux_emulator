@@ -8,10 +8,10 @@ You are the coding agent for **linux_emulator**, a three-process mock of a Curso
 ## Architecture (do not collapse)
 
 - `ui.html` — machine A. Browser WebSocket to the remote. Never exec.
-- `remote_server.py` — machine B. HTTP+WS **:8090**. Parse command line or English alias → `{argv: [...]}`. **Must not** import `subprocess`, call `os.system`, or create/delete files. `Path.home()` for `~` expansion is allowed.
-- `proxy_server.py` — machine C. WS **:8091**. The **only** process that execs. `subprocess.run(argv, …)` never `shell=True`. First token must be in `allowed_cmds.ALLOWED`. `rm -r` is refused.
+- `remote_server.py` — machine B. HTTP+WS **:8090**. Parse command line or English alias → `{argv: [...]}`. Holds the WS that C opened on `/proxy` and **asks** C. **Must not** import `subprocess`, call `os.system`, or create/delete files. `Path.home()` for `~` expansion is allowed.
+- `proxy_server.py` — machine C. Local daemon (WS **client** to `:8090/proxy`). The **only** process that execs. `subprocess.run(argv, …)` never `shell=True`. First token must be in `allowed_cmds.ALLOWED`. `rm -r` is refused.
 
-Start **proxy first**, then remote, then http://localhost:8090.
+**Ask:** A → B → C. **Connect:** A dials B `/ws`; C dials B `/proxy`. Start **remote first**, then `python proxy_server.py`, then http://localhost:8090.
 
 ## Input
 

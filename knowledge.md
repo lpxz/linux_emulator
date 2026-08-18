@@ -10,7 +10,7 @@ A asks B, B asks C. Who **opens** the socket is different from who **asks**.
 | **B** | `remote_server.py` :8090 | Cloud hub. Never execs. Never dials C. |
 | **C** | `proxy_server.py` | Local daemon. Dials B, then waits. Only process that execs. |
 
-**Connect:** A dials `ws://127.0.0.1:8090/ws`. C dials `ws://127.0.0.1:8090/proxy`. Same host/port, different paths.
+**Connect:** A dials `ws://127.0.0.1:8090/ws` (no JWT). C dials `ws://127.0.0.1:8090/proxy?token=…`. Same host/port, different paths. B verifies C’s HS256 JWT (`sub` must be `DAEMON_ID`, signature uses `DAEMON_JWT_SECRET`). Defaults `local-1` / `linux-emulator-dev-secret-key-32b`. Do not log the token URL.
 
 **Ask:** browser `{type:user}` → B parses → B sends `{argv}` on the socket **C already opened** → C `subprocess.run` → `{ok, stdout, stderr}` → B → browser `{type:result|error}`.
 
@@ -18,7 +18,7 @@ C is not in `ui.html`. `location.host` in the page is whatever served the HTML (
 
 Start **remote first**, then `python proxy_server.py`. If C is down, B returns `proxy is down`.
 
-`serve_proxy_socket` does not connect; `websockets.connect(REMOTE_URL)` in `run_daemon` does. `async with` holds that client socket. `async for raw in ws` only ends when the socket dies; C never hangs up on purpose.
+`serve_proxy_socket` does not connect; `websockets.connect(proxy_ws_url(REMOTE_URL))` in `run_daemon` does (JWT query param). `async with` holds that client socket. `async for raw in ws` only ends when the socket dies; C never hangs up on purpose.
 
 ## Failure handling
 
@@ -59,6 +59,10 @@ python loadtest.py --clients 20 --requests 25
 ```
 
 Example: 500 ok, 0 fail, p50 ~40ms (B serializes asks on one C socket). Watch the dashboard while it runs.
+
+## Daemon JWT
+
+C, not the browser. HS256. Same `DAEMON_JWT_SECRET` and `DAEMON_ID` on B and C (defaults `linux-emulator-dev-secret-key-32b` / `local-1`). C mints `sub`+`exp` on each connect. B checks signature, expiry, and `sub == DAEMON_ID`. Missing/wrong token → close 1008; never becomes the held `/proxy` socket. Do not log `?token=`.
 
 ## Git worktrees
 

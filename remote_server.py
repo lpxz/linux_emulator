@@ -11,6 +11,7 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse
 
 from allowed_cmds import ALLOWED, has_shell_meta, is_recursive_rm
+from daemon_auth import verify_token
 from metrics import METRICS
 
 app = FastAPI()
@@ -128,9 +129,13 @@ async def serve_dashboard():
 
 @app.websocket("/proxy")
 async def proxy_from_c(ws: WebSocket):
-    """C dials this socket; B then asks C on it."""
+    """C dials this socket with a JWT; B then asks C on it."""
     global proxy_ws, proxy_replies
+    claims = verify_token(ws.query_params.get("token"))
     await ws.accept()
+    if not claims:
+        await ws.close(code=1008, reason="unauthorized")
+        return
     old = proxy_ws
     proxy_ws = ws
     proxy_replies = asyncio.Queue()

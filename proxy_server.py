@@ -8,6 +8,7 @@ import subprocess
 import websockets
 
 from allowed_cmds import ALLOWED, is_recursive_rm
+from daemon_auth import known_daemon_id, proxy_ws_url
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
 log = logging.getLogger("proxy")
@@ -73,9 +74,10 @@ async def run_daemon():
     delay = BACKOFF_INITIAL
     while True:
         try:
-            async with websockets.connect(REMOTE_URL) as ws:
+            url = proxy_ws_url(REMOTE_URL)
+            async with websockets.connect(url) as ws:
                 delay = BACKOFF_INITIAL
-                log.info("connected to %s", REMOTE_URL)
+                log.info("connected to %s as %s", REMOTE_URL, known_daemon_id())
                 await serve_proxy_socket(ws)
                 log.info("socket closed by remote")
         except Exception as e:

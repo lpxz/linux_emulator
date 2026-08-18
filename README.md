@@ -14,9 +14,11 @@ pip install -r requirements.txt
 # terminal 1 — cloud mock (B)
 uvicorn remote_server:app --port 8090 --reload
 
-# terminal 2 — local daemon (C); connects to :8090/proxy
+# terminal 2 — local daemon (C); JWT on /proxy
 python proxy_server.py
 ```
+
+C proves it is the daemon B knows with an HS256 JWT (`sub` + `exp`). Set the same `DAEMON_JWT_SECRET` and `DAEMON_ID` on both processes (defaults `linux-emulator-dev-secret-key-32b` / `local-1` so the two-terminal demo works without extra env). Wrong secret or `sub` → B never holds the `/proxy` socket. Browser `/ws` stays unauthenticated.
 
 Open http://localhost:8090 · metrics: http://localhost:8090/dashboard
 

@@ -8,6 +8,7 @@ import uvicorn
 import websockets
 from websockets.sync.client import connect
 
+from daemon_auth import proxy_ws_url
 from remote_server import app
 
 HOST = "127.0.0.1"
@@ -32,6 +33,10 @@ def server():
     srv.should_exit = True
 
 
+def proxy_url():
+    return proxy_ws_url(WS + "/proxy")
+
+
 def test_get_ui(server):
     import urllib.request
 
@@ -48,6 +53,28 @@ def test_get_ui(server):
         assert "p50" in m["latency_ms"]
 
 
+def _proxy_must_not_stay_open(url: str):
+    try:
+        with connect(url, close_timeout=1) as sock:
+            try:
+                sock.recv(timeout=1)
+            except TimeoutError:
+                pytest.fail(f"unauthorized /proxy stayed open: {url}")
+            except Exception:
+                return
+    except Exception:
+        return
+    pytest.fail(f"unauthorized /proxy stayed open: {url}")
+
+
+def test_proxy_rejects_missing_or_bad_jwt(server):
+    from daemon_auth import issue_token
+
+    _proxy_must_not_stay_open(WS + "/proxy")
+    _proxy_must_not_stay_open(WS + "/proxy?token=not-a-jwt")
+    _proxy_must_not_stay_open(proxy_ws_url(WS + "/proxy", token=issue_token(daemon_id="evil")))
+
+
 def test_proxy_unavailable_when_c_not_connected(server):
     with connect(WS + "/ws") as browser:
         browser.send(json.dumps({"type": "user", "text": "echo hello"}))
@@ -57,7 +84,7 @@ def test_proxy_unavailable_when_c_not_connected(server):
 
 
 def test_b_asks_c_on_socket_c_opened(server):
-    with connect(WS + "/proxy") as proxy:
+    with connect(proxy_url()) as proxy:
         with connect(WS + "/ws") as browser:
             browser.send(json.dumps({"type": "user", "text": "echo hello"}))
             req = json.loads(proxy.recv(timeout=5))
@@ -69,7 +96,7 @@ def test_b_asks_c_on_socket_c_opened(server):
 
 
 def test_unknown_command_does_not_ask_c(server):
-    with connect(WS + "/proxy") as proxy:
+    with connect(proxy_url()) as proxy:
         with connect(WS + "/ws") as browser:
             browser.send(json.dumps({"type": "user", "text": "curl http://x"}))
             msg = json.loads(browser.recv(timeout=5))
@@ -90,7 +117,7 @@ def test_proxy_client_roundtrip(server):
     async def run_c():
         while not stop.is_set():
             try:
-                async with ws_aio.connect(WS + "/proxy") as sock:
+                async with ws_aio.connect(proxy_ws_url(WS + "/proxy")) as sock:
                     connected.set()
                     await proxy_server.serve_proxy_socket(sock)
                     return

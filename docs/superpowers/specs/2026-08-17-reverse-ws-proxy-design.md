@@ -31,7 +31,7 @@ Start **remote first**, then the proxy daemon, then open http://localhost:8090.
 
 - `remote_server.py` — keep `GET /` and browser `WS /ws`. Add `WS /proxy` for C. Hold **one** proxy connection (a new C replaces the previous). `call_proxy` **sends** `{argv}` on that socket and waits for `{ok, stdout, stderr}` instead of `websockets.connect` to :8091. Serialize with a lock so two browser messages cannot interleave on that socket.
 - `proxy_server.py` — stop serving FastAPI/WS. Connect to `ws://127.0.0.1:8090/proxy`, loop: recv → `run_argv` / `run_op` → send result. Reconnect if B restarts.
-- `ui.html` — no change (`location.host` + `/ws`).
+- `ui.html` — `GET /` page; browser WS to `/ws`; reconnects on close
 - `allowed_cmds.py` — no change.
 - `README.md` / `.cursor/agents/coding.md` / `2026-08-16-linux-emulator-design.md` — start order and who listens.
 
@@ -46,12 +46,14 @@ Legacy `{op, path}` still accepted by C. One in-flight argv at a time (serialize
 
 ## Errors
 
-- No proxy connected, or socket drops mid-call → browser `{"type":"error","text":"proxy unavailable: ..."}`. B clears the held socket.
+- No proxy connected, or `/proxy` drops mid-call → browser `{"type":"error","text":"proxy is down"}`. B clears the held socket.
+- C reconnects to B with exponential backoff (1s, 2s, 4s, … 30s), logs `connected` / `connect failed` / `reconnect in Ns`. Delay resets after a successful connect.
+- B process death closes A’s `/ws`. `ui.html` reconnects (1s … 8s) and shows `disconnected; retrying…` then `connected`. Send while not open → `not connected`.
 - Bad parse / unknown / shell meta / `rm -r` → error to A, **no** message to C.
 
 ## Validation
 
-Same command checks as the 2026-08-16 spec, plus: with remote up and proxy down, a valid `ls` yields proxy unavailable (not a hang). After proxy connects, `ls -la ~/` works.
+Same command checks as the 2026-08-16 spec, plus: with remote up and proxy down, a valid `ls` yields `proxy is down` (not a hang). After proxy connects, `ls -la ~/` works.
 
 ## Non-goals
 

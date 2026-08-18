@@ -46,7 +46,7 @@ def test_proxy_unavailable_when_c_not_connected(server):
         browser.send(json.dumps({"type": "user", "text": "echo hello"}))
         msg = json.loads(browser.recv(timeout=5))
     assert msg["type"] == "error"
-    assert "proxy unavailable" in msg["text"]
+    assert msg["text"] == "proxy is down"
 
 
 def test_b_asks_c_on_socket_c_opened(server):

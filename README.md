@@ -38,3 +38,13 @@ English phrases still work:
 - `remove file ~/test.txt`
 
 Unknown commands, pipes, redirects, and `rm -r` never reach the proxy.
+
+## Failure handling
+
+C dials B and reconnects with backoff (1s → 30s). Watch terminal 2 for `connected` / `reconnect in Ns`.
+
+If C is down, the page shows `error: proxy is down`.
+
+If B is killed, the page’s `/ws` dies too. The UI reconnects (1s → 8s) and prints `disconnected; retrying…` then `connected`. Wait for `connected` before sending; a dead tab socket will not ride C’s reconnect.
+
+Demo: kill terminal 1, watch C backoff, restart B, wait for both `connected` lines, send. Then kill terminal 2 and send → `proxy is down`.

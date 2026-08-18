@@ -28,7 +28,8 @@
   const logEl = document.getElementById("log");
   const input = document.getElementById("input");
   const proto = location.protocol === "https:" ? "wss://" : "ws://";
-  const ws = new WebSocket(proto + location.host + "/ws");
+  let ws = null;
+  let retry = 1000;
 
   function line(cls, label, text) {
     const div = document.createElement("div");
@@ -38,11 +39,34 @@
     logEl.scrollTop = logEl.scrollHeight;
   }
 
+  function connectWs() {
+    ws = new WebSocket(proto + location.host + "/ws");
+    ws.addEventListener("open", () => {
+      retry = 1000;
+      line("result", "", "connected");
+    });
+    ws.addEventListener("message", (ev) => {
+      let msg;
+      try { msg = JSON.parse(ev.data); } catch { return; }
+      if (msg.type === "result") line("result", "result:\n", msg.text || "");
+      else if (msg.type === "error") line("error", "error: ", msg.text || "error");
+    });
+    ws.addEventListener("close", () => {
+      line("error", "error: ", "disconnected; retrying in " + retry / 1000 + "s");
+      setTimeout(connectWs, retry);
+      retry = Math.min(retry * 2, 8000);
+    });
+  }
+
   function send() {
     const text = input.value.trim();
     if (!text) return;
     input.value = "";
     line("you", "you: ", text);
+    if (!ws || ws.readyState !== WebSocket.OPEN) {
+      line("error", "error: ", "not connected");
+      return;
+    }
     ws.send(JSON.stringify({ type: "user", text }));
   }
 
@@ -50,14 +74,7 @@
   input.addEventListener("keydown", (e) => {
     if (e.key === "Enter") { e.preventDefault(); send(); }
   });
-
-  ws.addEventListener("message", (ev) => {
-    let msg;
-    try { msg = JSON.parse(ev.data); } catch { return; }
-    if (msg.type === "result") line("result", "result:\n", msg.text || "");
-    else if (msg.type === "error") line("error", "error: ", msg.text || "error");
-  });
-  ws.addEventListener("close", () => line("error", "error: ", "disconnected"));
+  connectWs();
 </script>
 </body>
 </html>

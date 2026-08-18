@@ -1,12 +1,16 @@
 """proxy_server.py — machine C. Local daemon. The only process that execs."""
 import asyncio
 import json
+import logging
 import os
 import subprocess
 
 import websockets
 
 from allowed_cmds import ALLOWED, is_recursive_rm
+
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
+log = logging.getLogger("proxy")
 
 REMOTE_URL = os.environ.get("REMOTE_PROXY_URL", "ws://127.0.0.1:8090/proxy")
 BACKOFF_INITIAL = 1.0
@@ -71,9 +75,12 @@ async def run_daemon():
         try:
             async with websockets.connect(REMOTE_URL) as ws:
                 delay = BACKOFF_INITIAL
+                log.info("connected to %s", REMOTE_URL)
                 await serve_proxy_socket(ws)
-        except Exception:
-            pass
+                log.info("socket closed by remote")
+        except Exception as e:
+            log.warning("connect failed: %s", e)
+        log.info("reconnect in %.0fs", delay)
         await asyncio.sleep(delay)
         delay = next_backoff(delay)
 

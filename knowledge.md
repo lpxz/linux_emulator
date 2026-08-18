@@ -16,9 +16,33 @@ A asks B, B asks C. Who **opens** the socket is different from who **asks**.
 
 C is not in `ui.html`. `location.host` in the page is whatever served the HTML (8090).
 
-Start **remote first**, then `python proxy_server.py`. If C is down, B returns `proxy unavailable`.
+Start **remote first**, then `python proxy_server.py`. If C is down, B returns `proxy is down`.
 
-`serve_proxy_socket` does not connect; `websockets.connect(REMOTE_URL)` in `run_daemon` does. `async with` holds that client socket. `async for raw in ws` only ends when the socket dies; C never hangs up on purpose. Reconnect: 1s, 2s, 4s, … cap 30s; reset to 1s after a successful connect.
+`serve_proxy_socket` does not connect; `websockets.connect(REMOTE_URL)` in `run_daemon` does. `async with` holds that client socket. `async for raw in ws` only ends when the socket dies; C never hangs up on purpose.
+
+## Failure handling
+
+Two independent sockets. Killing B does not kill C’s process; killing C does not close the browser’s `/ws` until B notices C is gone on the next ask.
+
+**C (proxy daemon)** — reconnect with exponential backoff (1s, 2s, 4s, … cap 30s). Successful connect resets to 1s. Logs:
+
+- `connected to ws://127.0.0.1:8090/proxy`
+- `socket closed by remote` or `connect failed: …`
+- `reconnect in Ns`
+
+**B → A** — if no proxy is held, or the `/proxy` socket drops mid-call: `{"type":"error","text":"proxy is down"}`.
+
+**A (browser)** — `/ws` is created on page load. If B dies, that socket dies too; sending on it does nothing useful. `ui.html` reconnects on `close` (1s, 2s, 4s, … cap 8s), shows `disconnected; retrying…`, then `connected`. Send while not `OPEN` → `not connected`. After B restarts, wait for `connected` before sending (hard-refresh once if the tab still has the old script).
+
+### Demo
+
+`source venv/bin/activate` in each terminal (or use `./venv/bin/...`).
+
+1. Terminal 1: `uvicorn remote_server:app --port 8090 --reload`
+2. Terminal 2: `python proxy_server.py` — expect `connected to …`
+3. Open http://localhost:8090, wait for `connected`, `echo hello`
+4. Kill terminal 1. Terminal 2 logs backoff. Page: `disconnected; retrying…`. Bring terminal 1 back. Terminal 2: `connected to …`. Page: `connected`. Send again.
+5. Kill terminal 2. Send `echo hello` → `error: proxy is down`. Start terminal 2 again, then send works.
 
 ## Git worktrees
 

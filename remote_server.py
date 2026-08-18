@@ -95,7 +95,7 @@ async def call_proxy(argv) -> dict:
         ws = proxy_ws
         q = proxy_replies
         if ws is None or q is None:
-            raise RuntimeError("not connected")
+            raise RuntimeError("proxy is down")
         while not q.empty():
             q.get_nowait()
         try:
@@ -162,9 +162,9 @@ async def browser_ws(ws: WebSocket):
                 continue
             try:
                 result = await call_proxy(parsed)
-            except Exception as e:
+            except Exception:
                 await ws.send_text(
-                    json.dumps({"type": "error", "text": f"proxy unavailable: {e}"})
+                    json.dumps({"type": "error", "text": "proxy is down"})
                 )
                 continue
             if result.get("ok"):
